@@ -1,1 +1,136 @@
 
+import requests
+from xml.etree import ElementTree
+import pandas as pd
+import time
+import re
+import numpy as np
+
+
+def determine_params():
+    f = open('ip_keys_list.txt', 'r')
+    pardict = {}
+    for row in f.readlines():
+        pardict[row.split(';')[0]] = (row.split(';')[1], row.split(';')[2].strip())
+
+    ip = list(pardict.keys())[1]
+    us_name = pardict[ip][0]
+    yandex_key = pardict[ip][1]
+    url = "https://yandex.com/search/xml"
+    pars = dict(user=us_name, key=yandex_key, l10n="en", sortby="tm.order%3Ddescending" \
+                , filter="strict", groupby="attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
+
+    myxml = get_search_result("test", url, pars)
+    errors = [i.get('code') for i in myxml.iter() if i.tag == 'error']
+
+    if not errors:
+        print(ip)
+        return url, pars, ip
+
+    if '33' in errors:
+        ip = [re.search('\d+.\d+.\d+.\d+', i.text).group(0) for i in myxml.iter() if
+              i.tag == 'error' and i.get('code') == '33'][0]
+
+        if not ip:
+            print("Authentification data not found!!!")
+            return '-1', {}, ''
+        us_name = pardict[ip][0]
+        yandex_key = pardict[ip][1]
+        pars = dict(user=us_name, key=yandex_key, l10n="en", sortby="tm.order%3Ddescending" \
+                    , filter="strict", groupby="attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
+        print(ip)
+        return url, pars, ip
+    print(ip)
+    return url, pars, ip
+
+
+def get_search_result(list_of_words, url, param_dict):
+    """
+    :param list_of_words: список слов, по которым будет осуществлен поиск
+    :param url: url для доступа к API
+    :param param_dict: слвоарь параметров для доступа к API
+    :return: xml с результатами поиска
+    """
+    # print('quering')
+    param_dict['query'] = ' +'.join(
+        [w for w in list_of_words if w])  # включение в число параметров слов, по которым будет осуществлен поиск
+    r = 0
+    for i in range(4):
+        try:
+            print(param_dict)
+            resp = requests.get(url=url, params=param_dict,
+                                verify=False)  # получение ответа от Yandex.xml по url с заданными парметрами
+            print(resp)
+            # print(resp.url)
+            break
+        except Exception as ex:
+            r += 1
+            print(url)
+            print(ex)
+            time.sleep(5)
+    if r >= 4: return None
+    # print(resp.content)
+    tree = ElementTree.XML(resp.content)  # преобразование результата в дерево xml
+    return tree
+
+
+def get_data_frame(list_of_words, url, param_dict):
+    """
+    Функция получает xml от Яндекса и преобразует его в объект pandas.DataFrame для комфортной передачи в sql
+    :param list_of_words: список слов, по которым будет осуществлен поиск
+    :param url: url для доступа к API
+    :param param_dict: слвоарь параметров для доступа к API
+    :return: DataFrame
+    """
+    print(list_of_words)
+    myxml = get_search_result(list_of_words, url, param_dict)
+    if not myxml:
+        return pd.DataFrame(), [1100]
+    final_list = []
+    temp_dict = {}
+
+    errors = [i.get('code') for i in myxml.iter() if i.tag == 'error']
+
+    if errors:
+        print(errors)
+        return pd.DataFrame(), errors
+    for elt in myxml[1]:
+        for doc in elt.iter('doc'):
+            temp_dict = {}
+            for parts in doc:
+                if parts.tag == 'modtime':
+                    date = pd.to_datetime(parts.text)
+                    temp_dict[parts.tag] = date
+                else:
+                    temp_dict[parts.tag] = parts.text
+                    temp_dict['query'] = '+'.join(list_of_words)
+            if 'charset' not in temp_dict:
+                temp_dict['charset'] = np.NaN
+            if 'domain' not in temp_dict:
+                temp_dict['domain'] = np.NaN
+            if 'mime-type' not in temp_dict:
+                temp_dict['mime-type'] = np.NaN
+            if 'modtime' not in temp_dict:
+                temp_dict['modtime'] = np.NaN
+            if 'size' not in temp_dict:
+                temp_dict['size'] = np.NaN
+            if 'title' not in temp_dict:
+                temp_dict['title'] = ''
+            if 'url' not in temp_dict:
+                temp_dict['url'] = np.NaN
+            # print(re.search(
+            #     r'(кто\W+звони[а-я]*)|(чей\W+номер)|(вледелец\W+номер[а-я]*)|(телефонны[а-я]*\W+номер[а-я]*)|(инфо[а-я]+\W+о\W+номер[а-я]*)',
+            #     temp_dict['title'].lower() if temp_dict['title'] else ''))
+            # to_check_title=''
+            # to_check_title = temp_dict['title'].lower() if temp_dict['title'] else ''
+
+            if not re.search(
+                    r'(кто\W+звони[а-я]*)|(чей\W+номер)|(вледелец\W+номер[а-я]*)|(телефонны[а-я]*\W+номер[а-я]*)|'
+                    r'(инфо[а-я]+\W+о\W+номер[а-я]*)|(диапазон\W+[0-9]+\W*\-\W*[0-9]+)|(мобильн[а-я]+\Wномер[а-я]*)',
+                    temp_dict['title'].lower()):
+                final_list.append(temp_dict)
+            else:
+                print('AAAAAAAAAAAAAAAAA!!!!!')
+                print(temp_dict)
+        print(temp_dict)
+    return pd.DataFrame(final_list), []
