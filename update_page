@@ -1,0 +1,168 @@
+import tag_finder
+import sqlalchemy
+import pandas as pd
+import pyodbc
+import re
+
+import time
+from datetime import datetime
+from threading import Thread
+from queue import LifoQueue
+
+class Page_getter(Thread):
+    def __init__(self,name, thr_id, cnt, con_str):
+        Thread.__init__(self)
+        self.name='Page_getter'
+        self.threadID=101
+        self.counter=1
+        self.con=pyodbc.connect(con_str)
+
+    def run(self):
+        conn = self.con
+        cursor=self.con.cursor()
+        last_got=datetime.now()
+        while True:
+
+            while datetime.now().hour<9:
+                time.sleep(300)
+
+            if datetime.now().hour>=19:
+                break
+            if Page_parser.queue.empty():
+                try:
+                    sql=""
+
+                    cursor=conn.cursor()
+
+                    cursor.execute(sql)
+                except Exception as ex:
+                    print(ex)
+                    time.sleep(30)
+                    continue
+
+                for row in cursor.fetchall():
+                    if row not in Page_parser.queue.queue:
+                        Page_parser.queue.put(row)
+                print("{0} Data retrieved!!!".format(datetime.now()))
+                time.sleep(20)
+                if datetime.now().hour>=19:
+                    break
+
+
+class Page_parser(Thread):
+
+    queue=LifoQueue()
+
+    def __init__(self,name, thr_id, cnt, con_str):
+        Thread.__init__(self)
+        self.name=name
+        self.threadID=thr_id
+        self.counter=cnt
+        self.con=pyodbc.connect(con_str)
+
+    def run(self):
+        print("Starting {0}".format(self.name))
+        cursor=self.con.cursor()
+        while True:
+            print("{0} items in queue".format(len(Page_parser.queue.queue)))
+            id,url,search_entity1=('','','')
+            try:
+                if Page_parser.queue.empty():
+                    time.sleep(20)
+                    if datetime.now().hour>=19:
+                        print("{0}\t{1} breaking on time limit!".format(datetime.now(),self.name))
+                        break
+                    continue
+                id,url,search_entity1=Page_parser.queue.get()
+            except:
+                continue
+
+
+            l1=[]
+
+            if 'playground.in.ua' not in url:
+
+                try:
+                    l1=tag_finder.parse_tag(url,search_entity1)
+                    if not l1:
+                        print('{0}\tPage {1} parsed. Nothing found.'.format(datetime.now(),url))
+                    else:
+                        print('{0}\tPage {1} parsed. Found tags: {2}'.format(datetime.now(),url,'Next_tag: '.join(l1)))
+                except:
+                    pass
+
+
+                try:
+                    if l1:
+                        tagtext='\nNext_tag: '.join(l1)
+                    else:
+                        tagtext=''
+                    if re.search("[\w\.\-\_]+@[\w\.\-\_]+.[a-zA-Z]+",tagtext):
+                        email=re.search("[\w\.\-\_]+@[\w\.\-\_]+.[a-zA-Z]+",tagtext).group(0)
+                    else:
+                        email=None
+                    if len(tagtext)>150 and re.search("[\>\<\{\}]",tagtext):
+                        tagtext=re.sub("[a-zA-Z\<\>\{\}\:\"\'\/]","",tagtext)
+                        tagtext=re.sub("[\,\.\;\:]{2,}",",",tagtext)
+                        tagtext=tagtext[:3999]
+                        if email:
+                            tagtext=tagtext.replace("@",email)
+                    tagtext=tagtext.replace("'","")[:3500]
+                except:
+                    continue
+            else:
+                tagtext=''
+
+
+
+
+            # print('\n'*2,'---'*5)
+
+            if datetime.now().hour>=19:
+                print("{0}\t{1} breaking on time limit!".format(datetime.now(),self.name))
+                break
+
+
+        #try:
+         #   print(tagtext)
+             
+        #except:
+         #   pass
+
+if __name__ == '__main__':
+    con_str='DSN=FrodDB'
+
+    thread0=Page_getter('Getter',0,1,con_str)
+    thread1=Page_parser('Seeker1',1,1,con_str)
+    thread2=Page_parser('Seeker2',2,2,con_str)
+    thread3=Page_parser('Seeker3',3,3,con_str)
+    thread4=Page_parser('Seeker4',4,4,con_str)
+    thread5=Page_parser('Seeker5',5,5,con_str)
+    thread6=Page_parser('Seeker6',6,6,con_str)
+    thread7=Page_parser('Seeker7',7,7,con_str)
+    thread8=Page_parser('Seeker8',8,8,con_str)
+#    thread9=Page_parser('Seeker9',9,9,con_str)
+#    thread10=Page_parser('Seeker10',10,10,con_str)
+#    thread11=Page_getter('Seeker11',11,11,con_str)
+#    thread12=Page_parser('Seeker12',12,12,con_str)
+#    thread13=Page_parser('Seeker13',13,13,con_str)
+#    thread14=Page_parser('Seeker14',14,14,con_str)
+#    thread15=Page_parser('Seeker15',15,15,con_str)
+#    thread16=Page_parser('Seeker16',16,16,con_str)
+    thread0.start()
+    thread1.start()
+    thread2.start()
+    thread3.start()
+    thread4.start()
+    thread5.start()
+    thread6.start()
+    thread7.start()
+    thread8.start()
+#    thread9.start()
+#    thread10.start()
+#    thread11.start()
+#    thread12.start()
+#    thread13.start()
+#    thread14.start()
+#    thread15.start()
+#    thread16.start()
