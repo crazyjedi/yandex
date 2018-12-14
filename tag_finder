@@ -1,0 +1,22 @@
+import re
+import urllib.request as ur
+import bs4
+import requests
+
+
+def parse_tag(url,term):
+    try:
+        page=ur.urlopen(url=url,timeout=60).read()
+        # page=requests.get(url)
+    except:
+        return []
+    #"\<[a-zA-Z]+\>[\W\w\s]*{0}[\W\w\s]*\</[a-zA-Z]+\>"
+    soup=bs4.BeautifulSoup(page, "html.parser")
+    result=[]
+    for elem in soup(text=re.compile(term)):
+        elt=re.sub("\s+"," ",elem.parent.text).strip()
+        if elt not in result:
+            result.append(elt)
+    return result
+
+# print(parse_tag("http://stoimost-monetki.ru/ukraina/1-kopejka-2008-goda-ukraina-1-kopijka/","0631863937"))
