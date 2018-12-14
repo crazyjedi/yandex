@@ -1,0 +1,106 @@
+import requests
+import pandas as pd
+import yandex_xml as yxml
+import sqlalchemy
+import json
+from yandex_classifiers import rules_classifier as rc
+from yandex_classifiers import url_classifier as uc
+import time
+import ssl
+from datetime import datetime
+
+def write_log(message):
+    f_str='logs\log.txt'.format(str(datetime.today()).split()[0])
+    f=open(f_str,'a')
+    f.write('{0} {1} \n'.format(datetime.now(),message))
+
+
+def load_data(sql,rules, urlp="", parp = {}):
+    url = urlp
+    pars = parp
+    ip=''
+    if not url:
+        url,pars,ip = yxml.determine_params()
+
+    print(url,pars)
+    print(ip)
+    engine = sqlalchemy.create_engine('mssql+pyodbc://@FrodDB') # движок sqlalchemy (строка подключения)
+    newurl="https://yandex.ru/search/xml?user=uid-ppapee3m"
+    newkey="03.398909827:d4c562d8aca796d55fc3d23cfe78f191"
+
+    a=0
+    while a==0:
+        
+        try:
+            init_data=pd.read_sql_query(sql,engine)
+            a=1
+        except:
+            time.sleep(30)
+
+    result_dataframe=pd.DataFrame()
+    errors=pd.DataFrame()
+   
+    # i=1000 ##############################ОГРАНИЧЕНИЕ НА КОЛИЧЕСТВО ЗАПРОСОВ!!!!
+    try:
+        for ind, row in init_data.iterrows(): # Перебираем строки таблицы
+            # print(row)
+            print(ip)
+            try:
+                
+ 
+                for_search=['+"'+str(row.Mob)+'" lang:ru']
+                print(ind,for_search)
+                # print(ind)
+                try:
+                    resdf,errors=yxml.get_data_frame(for_search,url,pars)
+                except Exception as ex:
+                    write_log(ex)
+
+                if '33' in errors:
+                    url,pars = yxml.determine_params()
+                    resdf,errors=yxml.get_data_frame(for_search,url,pars)
+
+                if '32' in errors:
+                    return ('32',result_dataframe[['charset', 'domain', 'mime-type', 'modtime',
+                           'query', 'size', 'title', 'url', 'error', 'INN',
+                           'url_type_rules', 'url_type_urllist', 'url_type_classifier',
+                           'url_type_final', 'insert_date', 'request_type', 'search_entity1',
+                           'search_entity2','order_date']] if not result_dataframe.empty else result_dataframe, url, pars)
+                td=dict(query_term1=[row.Mob],query_term2=[''],full_query=[for_search],inn=[row.INN])
+                query_log=pd.DataFrame(dict(query_term1=[row.Mob],query_term2=[''],full_query=[f.replace('"','') for f in  for_search],inn=[row.INN]))
+
+
+                if len(resdf)>0:
+                    resdf['error']=0
+                    resdf['INN']=row.INN
+                    resdf['url_type_rules']=[rc.detect_class_by_rules(rules,title) for title in resdf.title]
+                    resdf['url_type_urllist']=[uc.detect_class_by_urllist(url) for url in resdf.url]
+                    resdf['url_type_classifier']=0
+                    resdf['url_type_final']=0
+                    resdf['insert_date'] = None
+                    resdf['request_type'] = row.request_type
+                    resdf['search_entity1'] = row.Mob
+                    resdf['search_entity2'] = None
+                    resdf['order_date']=row.order_date
+                    result_dataframe=result_dataframe.append(resdf)
+                    print("Data added!")
+                    print(resdf)
+
+
+
+
+            except Exception as ex:
+                print(ex)
+                resdf=pd.DataFrame()
+                resdf['query']=for_search
+                resdf['error']=1
+                errors=errors.append(resdf)
+
+    except:
+        pass
+
+    return ('0',result_dataframe[['charset', 'domain', 'mime-type', 'modtime',
+       'query', 'size', 'title', 'url', 'error', 'INN',
+       'url_type_rules', 'url_type_urllist', 'url_type_classifier',
+       'url_type_final', 'insert_date', 'request_type', 'search_entity1',
+       'search_entity2','order_date']] if not result_dataframe.empty else result_dataframe, url, pars)
